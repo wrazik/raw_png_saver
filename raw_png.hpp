@@ -1,47 +1,55 @@
 #pragma once
 #include <array>
+#include <filesystem>
+#include <fstream>
 #include <string_view>
 
-
-void svpng(FILE* fp, unsigned w, unsigned h, const unsigned char* img, int alpha);
+void svpng(std::ofstream& file, unsigned w, unsigned h, const unsigned char* img, int alpha);
 
 namespace raw_png {
 void save(std::string_view filename, unsigned w, unsigned h, const unsigned char* img, int alpha) {
-  FILE* png = fopen(filename.data(), "wb");
-  svpng(png, w, h, img, alpha);
-  fclose(png);
+  std::ofstream file(std::filesystem::path(filename), std::ios_base::binary | std::ios_base::out);
+  svpng(file, w, h, img, alpha);
 }
 }  // namespace raw_png
 
 namespace detail {
-constexpr std::array<uint32_t, 16> crc_table{{0, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190,
-                                              0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320,
-                                              0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0,
-                                              0x86d3d2d4, 0xa00ae278, 0xbdbdf21c}};
 
+template <typename Bits>
+Bits last_four_bits(Bits number) {
+  static_assert(sizeof(Bits) >= 4);
+  return number & 0b1111;
+}
+
+template <unsigned int N>
+void write_literal(std::ofstream& file, const char (&literal)[N]) {
+  file.write(literal, N - 1);
+}
+
+constexpr const char header[] = "\x89PNG\r\n\32\n";
 const char* create_header() { return "\x89PNG\r\n\32\n"; }
 }  // namespace detail
-void svpng(FILE* fp, unsigned w, unsigned h, const unsigned char* img, int alpha) {
-  static const unsigned t[] = {0, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190,
-                                              0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320,
-                                              0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0,
-                                              0x86d3d2d4, 0xa00ae278, 0xbdbdf21c};
+
+void svpng(std::ofstream& file, unsigned w, unsigned h, const unsigned char* img, int alpha) {
+  constexpr std::array<uint32_t, 16> crc_table{{0, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190,
+                                                0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320,
+                                                0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0,
+                                                0x86d3d2d4, 0xa00ae278, 0xbdbdf21c}};
+
   unsigned a = 1, b = 0, c, p = w * (alpha ? 4 : 3) + 1, x, y, i; /* ADLER-a, ADLER-b, CRC, pitch */
-#define SVPNG_U8A(ua, l) \
-  for (i = 0; i < l; i++) fputc((ua)[i], fp);
-#define SVPNG_U32(u)                \
-  do {                              \
-    fputc(((u) >> 24), fp);         \
-    fputc((((u) >> 16) & 255), fp); \
-    fputc((((u) >> 8) & 255), fp);  \
-    fputc(((u)&255), fp);           \
+#define SVPNG_U32(u)             \
+  do {                           \
+    file.put((u) >> 24);         \
+    file.put(((u) >> 16) & 255); \
+    file.put(((u) >> 8) & 255);  \
+    file.put((u)&255);           \
   } while (0)
-#define SVPNG_U8C(u)          \
-  do {                        \
-    fputc(u, fp);             \
-    c ^= (u);                 \
-    c = (c >> 4) ^ t[c & 15]; \
-    c = (c >> 4) ^ t[c & 15]; \
+#define SVPNG_U8C(u)                  \
+  do {                                \
+    file.put(u);                      \
+    c ^= (u);                         \
+    c = (c >> 4) ^ crc_table[c & 15]; \
+    c = (c >> 4) ^ crc_table[c & 15]; \
   } while (0)
 #define SVPNG_U8AC(ua, l) \
   for (i = 0; i < l; i++) SVPNG_U8C((ua)[i])
@@ -71,8 +79,9 @@ void svpng(FILE* fp, unsigned w, unsigned h, const unsigned char* img, int alpha
   } while (0)
 #define SVPNG_END() SVPNG_U32(~c)
 
-  SVPNG_U8A(detail::create_header(), 8); /* Magic */
-  SVPNG_BEGIN("IHDR", 13);               /* IHDR chunk { */
+  detail::write_literal(file, detail::header);
+
+  SVPNG_BEGIN("IHDR", 13);       /* IHDR chunk { */
   SVPNG_U32C(w);
   SVPNG_U32C(h); /*   Width & Height (8 bytes) */
   SVPNG_U8C(8);
