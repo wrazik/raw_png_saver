@@ -2,6 +2,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <string_view>
 
 void svpng(std::ofstream& file, unsigned w, unsigned h, const unsigned char* img, int alpha);
@@ -21,13 +22,7 @@ Bits last_four_bits(Bits number) {
   return number & 0b1111;
 }
 
-template <unsigned int N>
-void write_literal(std::ofstream& file, const char (&literal)[N]) {
-  file.write(literal, N - 1);
-}
-
 constexpr const char header[] = "\x89PNG\r\n\32\n";
-const char* create_header() { return "\x89PNG\r\n\32\n"; }
 }  // namespace detail
 
 void svpng(std::ofstream& file, unsigned w, unsigned h, const unsigned char* img, int alpha) {
@@ -79,7 +74,7 @@ void svpng(std::ofstream& file, unsigned w, unsigned h, const unsigned char* img
   } while (0)
 #define SVPNG_END() SVPNG_U32(~c)
 
-  detail::write_literal(file, detail::header);
+  file << detail::header;
 
   SVPNG_BEGIN("IHDR", 13);       /* IHDR chunk { */
   SVPNG_U32C(w);
