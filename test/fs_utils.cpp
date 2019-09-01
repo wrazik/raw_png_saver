@@ -18,7 +18,7 @@ DirHandler::DirHandler(const std::filesystem::path& path)
 }
 DirHandler::~DirHandler() {
   if (is_new_dir_) {
-    std::filesystem::remove_all(path_);
+//    std::filesystem::remove_all(path_);
   }
 }
 

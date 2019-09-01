@@ -1,2 +1,8 @@
 enable_testing()
-add_executable(run_tests performance_test.cpp fs_utils.cpp fs_utils.h)
+add_executable(run_tests
+        fake_data.cpp
+        fake_data.h
+        fs_utils.cpp
+        fs_utils.h
+        performance_test.cpp
+        )
