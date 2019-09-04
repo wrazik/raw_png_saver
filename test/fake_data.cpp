@@ -6,12 +6,7 @@
 namespace fake_data {
 
 std::byte RandomByte() {
-  std::random_device dev;
-  std::mt19937 rng(dev());
-  std::uniform_int_distribution<std::mt19937::result_type> dist(0, 3);
-  std::array rgb = {std::byte(0), std::byte(100), std::byte(255)};
-
-  return rgb[dist(rng)];
+  return std::byte(255);
 }
 
 std::vector<std::byte> RawPng(uint32_t width, uint32_t height) {
