@@ -30,18 +30,11 @@ int main() {
     throw std::runtime_error("Test directory: "s + test_path);
   }
 
-  constexpr uint32_t width = 800;
-  constexpr uint32_t height = 600;
+  constexpr uint32_t width = 5;
+  constexpr uint32_t height = 5;
 
   std::vector<std::byte> const fake_png = fake_data::RawPng(width, height);
   auto const data_ptr = reinterpret_cast<unsigned char const* const>(fake_png.data());
-
-  auto test = 0b1001'0101'1001'0100'1001'0101'0010'0111;
-  std::cout << "test " << std::bitset<32>(test) << "\n";
-  std::cout << "test >> 24" << std::bitset<32>(test >> 24) << "\n";
-  std::cout << "test >> 16 & ff" << std::bitset<32>((test >> 16) & 255) << "\n";
-  std::cout << "test >> 8 & ff" << std::bitset<32>((test >> 8) & 255) << "\n";
-  std::cout << "test & ff" << std::bitset<32>(test & 255) << "\n";
 
   auto duration =
       run_and_measure(raw_png::save, test_path + "/test.png", width, height, data_ptr, 0);
