@@ -38,7 +38,16 @@ std::array<unsigned char, 4> convert_to_4byte_arr(uint32_t val) {
   return {last_byte(val >> 24), last_byte(val >> 16), last_byte(val >> 8), last_byte(val)};
 }
 
+std::array<unsigned char, 2> convert_to_2byte_arr(uint16_t val) {
+  return {last_byte(val), last_byte(val >> 8)};
+}
+
 void append_4_bytes(std::vector<unsigned char>& vec, uint32_t val) {
+  auto const to_insert = convert_to_4byte_arr(val);
+  vec.insert(vec.end(), to_insert.begin(), to_insert.end());
+}
+
+void append_2_bytes(std::vector<unsigned char>& vec, uint16_t val) {
   auto const to_insert = convert_to_4byte_arr(val);
   vec.insert(vec.end(), to_insert.begin(), to_insert.end());
 }
@@ -50,24 +59,86 @@ void append(std::vector<unsigned char>& vec, Iterable const& it) {
   }
 }
 
-uint32_t calculate_crc(std::vector<unsigned char> const& values) {
+template <typename ForwardIt>
+uint32_t calculate_crc(ForwardIt first, ForwardIt last) {
   constexpr std::array<uint32_t, 16> kCrc{0x0,        0x1db71064, 0x3b6e20c8, 0x26d930ac,
                                           0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
                                           0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c,
                                           0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c};
   uint32_t crc = ~0U;
-  for (unsigned char const c : values) {
-    crc ^= (c);
+  while (first != last) {
+    crc ^= (*first++);
     crc = (crc >> 4) ^ kCrc[crc & 15];
     crc = (crc >> 4) ^ kCrc[crc & 15];
   }
   return ~crc;
 }
 
+uint32_t calculate_crc(std::vector<unsigned char> const& values) {
+  const auto begin_after_size = values.begin() + 4;
+  return calculate_crc(begin_after_size, values.end());
+}
+
+
+uint32_t calculate_adler(std::vector<unsigned char> const& values) {
+  uint32_t a = 1;
+  uint32_t b = 1;
+  for (auto const c: values) {
+    a = (a + (c)) % 65521;
+    b = (b + a) % 65521;
+  }
+  return (b << 16) | a;
+}
+
+std::vector<unsigned char> create_addler(unsigned char const * const first, uint32_t size) {
+  unsigned char const kNoFilter = 0 ;
+  std::vector<unsigned char> addler;
+  addler.push_back(kNoFilter);
+  std::copy(first, first + size, std::back_inserter(addler));
+  append_4_bytes(addler, calculate_adler(addler));
+  return addler;
+}
+
+std::vector<unsigned char> create_data_chunk(uint32_t w, uint32_t h, int alpha,
+                                             unsigned char const * const data) {
+  uint32_t const kPixelWidth = alpha ? 4 : 3;
+  uint32_t const kRowWidth = w * kPixelWidth + 1;
+
+  std::vector<unsigned char> idat_chunk;
+  uint32_t kChunkSize = 2 + h * (5 + kRowWidth) + 4;
+  std::cout << kRowWidth << "\n";
+
+  append_4_bytes(idat_chunk, kChunkSize);
+
+  idat_chunk.push_back('I');
+  idat_chunk.push_back('D');
+  idat_chunk.push_back('A');
+  idat_chunk.push_back('T');
+  idat_chunk.push_back('\x78');
+  idat_chunk.push_back('\1'); //deflate block
+  uint32_t a = 1;
+  uint32_t b = 0;
+  for (int i = 0; i < h; ++i) {
+    if (i != h - 1)
+      idat_chunk.push_back(0);
+    else
+      idat_chunk.push_back(1);
+    append_2_bytes(idat_chunk, kRowWidth);
+    append_2_bytes(idat_chunk, ~kRowWidth);
+    std::vector<unsigned char> addler = create_addler(data, kPixelWidth - 1);
+    std::copy(addler.begin(), addler.end(), std::back_inserter(idat_chunk));
+  }
+  append_4_bytes(idat_chunk, calculate_crc(idat_chunk));
+  return idat_chunk;
+}
+
 std::vector<unsigned char> create_ihdr_chunk(uint32_t w, uint32_t h, int alpha) {
   std::vector<unsigned char> hdr_chunk;
   uint32_t c = ~0U;
   unsigned char kDpeth = 8;
+  unsigned char kChunkSize = 13;
+  hdr_chunk.reserve(kChunkSize * 2);
+  append_4_bytes(hdr_chunk, kChunkSize);
 
   c = ~0U;
   hdr_chunk.push_back('I');
@@ -93,88 +164,14 @@ std::vector<unsigned char> create_ihdr_chunk(uint32_t w, uint32_t h, int alpha) 
 void svpng_int(std::fstream& fp, unsigned w, unsigned h, const unsigned char* img, int alpha) {
   std::vector<unsigned char> png_data;
   png_data.reserve(4.5 * w * h);
-  constexpr std::array<uint32_t, 16> kCrc{0x0,        0x1db71064, 0x3b6e20c8, 0x26d930ac,
-                                          0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
-                                          0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c,
-                                          0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c};
-  unsigned a = 1;
-  unsigned b = 0;
-  unsigned c;
-  unsigned p = w * (alpha ? 4 : 3) + 1;
-  unsigned x, y;
-  unsigned i;
-
-#define SVPNG_U32(u)             \
-  do {                           \
-    append_4_bytes(png_data, u); \
-  } while (0)
-
-#define SVPNG_U8C(u)             \
-  do {                           \
-    png_data.push_back(u);       \
-    c ^= (u);                    \
-    c = (c >> 4) ^ kCrc[c & 15]; \
-    c = (c >> 4) ^ kCrc[c & 15]; \
-  } while (0)
-#define SVPNG_U8AC(ua, l) \
-  for (i = 0; i < l; i++) SVPNG_U8C((ua)[i])
-#define SVPNG_U16LC(u)           \
-  do {                           \
-    SVPNG_U8C((u)&255);          \
-    SVPNG_U8C(((u) >> 8) & 255); \
-  } while (0)
-
-#define SVPNG_U32C(u)             \
-  do {                            \
-    SVPNG_U8C((u) >> 24);         \
-    SVPNG_U8C(((u) >> 16) & 255); \
-    SVPNG_U8C(((u) >> 8) & 255);  \
-    SVPNG_U8C((u)&255);           \
-  } while (0)
-
-#define SVPNG_U8ADLER(u)   \
-  do {                     \
-    SVPNG_U8C(u);          \
-    a = (a + (u)) % 65521; \
-    b = (b + a) % 65521;   \
-  } while (0)
-#define SVPNG_BEGIN(s, l)        \
-  do {                           \
-    append_4_bytes(png_data, l); \
-    c = ~0U;                     \
-    SVPNG_U8AC(s, 4);            \
-  } while (0)
-
-#define SVPNG_END() append_4_bytes(png_data, ~c)
   fp.write("\x89PNG\r\n\32\n", 8); /* Magic */
 
-  append_4_bytes(png_data, 13);
-  append(png_data, create_ihdr_chunk(w, h, alpha));
+  std::vector<unsigned char> hdr_chunk = create_ihdr_chunk(w, h, alpha);
+  std::copy(hdr_chunk.begin(), hdr_chunk.end(), std::back_inserter(png_data));
 
-  SVPNG_BEGIN("IDAT", 2 + h * (5 + p) + 4); /* IDAT chunk { */
-  SVPNG_U8AC("\x78\1", 2);                  /*   Deflate block begin (2 bytes) */
-  for (y = 0; y < h; y++) { /*   Each horizontal line makes a block for simplicity */
-    SVPNG_U8C(y == h - 1);  /*   1 for the last block, 0 for others (1 byte) */
-    SVPNG_U16LC(p);
-    SVPNG_U16LC(~p);  /*   Size of block in little endian and its 1's complement (4 bytes) */
-    SVPNG_U8ADLER(0); /*   No filter prefix (1 byte) */
-    for (x = 0; x < p - 1; x++, img++) SVPNG_U8ADLER(*img); /*   Image pixel data */
-  }
-  SVPNG_U32C((b << 16) | a); /*   Deflate block end with adler (4 bytes) */
-  SVPNG_END();               /* } */
-  SVPNG_BEGIN("IEND", 0);
-  SVPNG_END(); /* IEND chunk {} */
+  std::vector<unsigned char> idat_chunk = create_data_chunk(w, h, alpha, img);
+  std::copy(idat_chunk.begin(), idat_chunk.end(), std::back_inserter(png_data));
 
   fp.write(reinterpret_cast<char*>(png_data.data()), png_data.size());
 }
 
-#undef SVPNG_OUTPUT
-#undef SVPNG_U8A
-#undef SVPNG_U32
-#undef SVPNG_U8C
-#undef SVPNG_U8AC
-#undef SVPNG_U16LC
-#undef SVPNG_U32C
-#undef SVPNG_U8ADLER
-#undef SVPNG_BEGIN
-#undef SVPNG_END
