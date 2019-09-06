@@ -17,7 +17,7 @@ using std::string_literals::operator""s;
 std::string const test_path = "/tmp/raw_png_saver_test_data";
 
 void run_reference_lib(std::string const& filename, unsigned w, unsigned h,
-                       const unsigned char* img, int alpha) {
+                       unsigned char* img, int alpha) {
   FILE* output = fopen(filename.c_str(), "wb");
   svpng(output, w, h, img, alpha);
 
@@ -33,8 +33,8 @@ int main() {
   constexpr uint32_t width = 5;
   constexpr uint32_t height = 5;
 
-  std::vector<std::byte> const fake_png = fake_data::RawPng(width, height);
-  auto const data_ptr = reinterpret_cast<unsigned char const* const>(fake_png.data());
+  std::vector<std::byte> fake_png = fake_data::RawPng(width, height);
+  auto const data_ptr = reinterpret_cast<unsigned char *>(fake_png.data());
 
   auto duration =
       run_and_measure(raw_png::save, test_path + "/test.png", width, height, data_ptr, 0);

@@ -8,10 +8,10 @@
 #include "errno.h"
 #include "test/svpng.inc"
 
-void svpng_int(std::fstream& file, unsigned w, unsigned h, const unsigned char* img, int alpha);
+void svpng_int(std::fstream& file, unsigned w, unsigned h, unsigned char* img, int alpha);
 
 namespace raw_png {
-void save(std::string const& filename, unsigned w, unsigned h, const unsigned char* img,
+void save(std::string const& filename, unsigned w, unsigned h, unsigned char* img,
           int alpha) {
   std::fstream file(filename.c_str(), std::ios_base::binary | std::ios_base::out);
   svpng_int(file, w, h, img, alpha);
@@ -48,7 +48,7 @@ void append_4_bytes(std::vector<unsigned char>& vec, uint32_t val) {
 }
 
 void append_2_bytes(std::vector<unsigned char>& vec, uint16_t val) {
-  auto const to_insert = convert_to_4byte_arr(val);
+  auto const to_insert = convert_to_2byte_arr(val);
   vec.insert(vec.end(), to_insert.begin(), to_insert.end());
 }
 
@@ -82,7 +82,7 @@ uint32_t calculate_crc(std::vector<unsigned char> const& values) {
 
 uint32_t calculate_adler(std::vector<unsigned char> const& values) {
   uint32_t a = 1;
-  uint32_t b = 1;
+  uint32_t b = 0;
   for (auto const c: values) {
     a = (a + (c)) % 65521;
     b = (b + a) % 65521;
@@ -90,23 +90,24 @@ uint32_t calculate_adler(std::vector<unsigned char> const& values) {
   return (b << 16) | a;
 }
 
-std::vector<unsigned char> create_addler(unsigned char const * const first, uint32_t size) {
+std::vector<unsigned char> create_addler(unsigned char * first, uint32_t size) {
   unsigned char const kNoFilter = 0 ;
   std::vector<unsigned char> addler;
-  addler.push_back(kNoFilter);
-  std::copy(first, first + size, std::back_inserter(addler));
+  append_4_bytes(addler, kNoFilter);
+  for (int i = 0; i < size; ++i, first++) {
+    addler.push_back(*first);
+  }
   append_4_bytes(addler, calculate_adler(addler));
   return addler;
 }
 
 std::vector<unsigned char> create_data_chunk(uint32_t w, uint32_t h, int alpha,
-                                             unsigned char const * const data) {
+                                             unsigned char * data) {
   uint32_t const kPixelWidth = alpha ? 4 : 3;
   uint32_t const kRowWidth = w * kPixelWidth + 1;
 
   std::vector<unsigned char> idat_chunk;
   uint32_t kChunkSize = 2 + h * (5 + kRowWidth) + 4;
-  std::cout << kRowWidth << "\n";
 
   append_4_bytes(idat_chunk, kChunkSize);
 
@@ -118,6 +119,7 @@ std::vector<unsigned char> create_data_chunk(uint32_t w, uint32_t h, int alpha,
   idat_chunk.push_back('\1'); //deflate block
   uint32_t a = 1;
   uint32_t b = 0;
+  std::vector<unsigned char> for_addler;
   for (int i = 0; i < h; ++i) {
     if (i != h - 1)
       idat_chunk.push_back(0);
@@ -125,9 +127,15 @@ std::vector<unsigned char> create_data_chunk(uint32_t w, uint32_t h, int alpha,
       idat_chunk.push_back(1);
     append_2_bytes(idat_chunk, kRowWidth);
     append_2_bytes(idat_chunk, ~kRowWidth);
-    std::vector<unsigned char> addler = create_addler(data, kPixelWidth - 1);
-    std::copy(addler.begin(), addler.end(), std::back_inserter(idat_chunk));
+    unsigned char const kNoFilter = 0 ;
+    for_addler.push_back(kNoFilter);
+    idat_chunk.push_back(kNoFilter);
+    for (int i = 0; i < kRowWidth - 1; ++i, data++) {
+      for_addler.push_back(*data);
+      idat_chunk.push_back(*data);
+    }
   }
+  append_4_bytes(idat_chunk, calculate_adler(for_addler));
   append_4_bytes(idat_chunk, calculate_crc(idat_chunk));
   return idat_chunk;
 }
@@ -161,7 +169,7 @@ std::vector<unsigned char> create_ihdr_chunk(uint32_t w, uint32_t h, int alpha) 
   return hdr_chunk;
 }
 
-void svpng_int(std::fstream& fp, unsigned w, unsigned h, const unsigned char* img, int alpha) {
+void svpng_int(std::fstream& fp, unsigned w, unsigned h, unsigned char* img, int alpha) {
   std::vector<unsigned char> png_data;
   png_data.reserve(4.5 * w * h);
   fp.write("\x89PNG\r\n\32\n", 8); /* Magic */
@@ -171,6 +179,15 @@ void svpng_int(std::fstream& fp, unsigned w, unsigned h, const unsigned char* im
 
   std::vector<unsigned char> idat_chunk = create_data_chunk(w, h, alpha, img);
   std::copy(idat_chunk.begin(), idat_chunk.end(), std::back_inserter(png_data));
+  std::vector<unsigned char> end;
+  append_4_bytes(end, 0);
+  end.push_back('I');
+  end.push_back('E');
+  end.push_back('N');
+  end.push_back('D');
+  uint32_t const crc = calculate_crc(end);
+  append_4_bytes(end, crc);
+  std::copy(end.begin(), end.end(), std::back_inserter(png_data));
 
   fp.write(reinterpret_cast<char*>(png_data.data()), png_data.size());
 }
