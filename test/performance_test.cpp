@@ -30,8 +30,8 @@ int main() {
     throw std::runtime_error("Test directory: "s + test_path);
   }
 
-  constexpr uint32_t width = 5;
-  constexpr uint32_t height = 5;
+  constexpr uint32_t width = 10000;
+  constexpr uint32_t height = 10000;
 
   std::vector<std::byte> fake_png = fake_data::RawPng(width, height);
   auto const data_ptr = reinterpret_cast<unsigned char *>(fake_png.data());
