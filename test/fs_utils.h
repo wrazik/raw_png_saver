@@ -8,12 +8,12 @@ namespace fs_utils {
  * remove on destruction. Otherwise, it will do nothing. */
 class DirHandler {
 public:
-  explicit DirHandler(const std::filesystem::path&);
+  explicit DirHandler(std::filesystem::path&&);
   ~DirHandler();
   bool IsMountedOnRam() const;
 
 private:
-  const std::filesystem::path& path_;
+  std::filesystem::path path_;
   const bool is_new_dir_;
 };
 

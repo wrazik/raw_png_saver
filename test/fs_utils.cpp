@@ -10,8 +10,8 @@
 namespace fs_utils {
 using std::string_literals::operator""s;
 
-DirHandler::DirHandler(const std::filesystem::path& path)
-    : path_(path), is_new_dir_(!std::filesystem::exists(path_)) {
+DirHandler::DirHandler(std::filesystem::path&& path)
+    : path_(std::move(path)), is_new_dir_(!std::filesystem::exists(path_)) {
   if (is_new_dir_) {
     std::filesystem::create_directories(path_);
   }

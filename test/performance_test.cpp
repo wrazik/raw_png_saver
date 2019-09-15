@@ -27,7 +27,7 @@ void run_reference_lib(std::string const& filename, unsigned w, unsigned h,
 int main() {
   fs_utils::DirHandler const test_dir{std::filesystem::path(test_path)};
   if (!test_dir.IsMountedOnRam()) {
-    throw std::runtime_error("Test directory: "s + test_path);
+    throw std::runtime_error("Test directory not on ram: "s + test_path);
   }
 
   constexpr uint32_t width = 10000;
